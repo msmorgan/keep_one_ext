@@ -2,6 +2,7 @@
 
 use std::{
     collections::hash_map::HashMap,
+    error::Error as StdError,
     ffi::OsString,
     fs,
     path::{Path, PathBuf},
@@ -9,6 +10,8 @@ use std::{
 
 use fehler::throws;
 use promptly::prompt_default;
+
+type BoxError = Box<dyn StdError>;
 
 #[derive(Debug, structopt::StructOpt, Clone)]
 struct Options {
@@ -26,7 +29,7 @@ struct Options {
 }
 
 impl Options {
-    fn with_subdir(&self, subdir: impl AsRef<Path>) -> Self {
+    fn clone_with_subdir(&self, subdir: impl AsRef<Path>) -> Self {
         let subdir = subdir.as_ref();
         Options {
             in_dir: self.in_dir.join(subdir),
@@ -36,41 +39,14 @@ impl Options {
     }
 }
 
-#[throws(Box<dyn std::error::Error>)]
+#[throws(BoxError)]
 fn process(options: &Options) {
-    let mut file_map = HashMap::new();
-    for entry in fs::read_dir(&options.in_dir)?.filter_map(|e| e.ok()) {
-        if entry.file_type()?.is_dir() && options.recursive {
-            process(&options.with_subdir(entry.file_name()))?;
-        } else {
-            let file = entry.path();
-            if let (Some(stem), Some(extension)) = (file.file_stem(), file.extension()) {
-                if !file_map.contains_key(stem) {
-                    file_map.insert(stem.to_owned(), vec![]);
-                }
-                file_map
-                    .get_mut(stem)
-                    .unwrap()
-                    .push((file.clone(), extension.to_owned()));
-            }
-        }
-    }
+    let file_map = get_file_map(options)?;
 
     for stem in file_map.keys() {
         let entries = file_map.get(stem).unwrap();
-        let mut keeping = None;
 
-        // Check each kept extension one-by-one.
-        for keep_ext in options.keep.iter() {
-            // If there is an entry with this extension, it is the one to keep.
-            keeping = entries
-                .iter()
-                .find(|(_, ext)| ext.eq_ignore_ascii_case(keep_ext))
-                .map(|(path, _)| path);
-            if keeping.is_some() {
-                break;
-            }
-        }
+        let keeping = get_kept_file(&options.keep[..], &entries[..]);
 
         if let Some(keeping) = keeping {
             let discarding = entries
@@ -83,10 +59,14 @@ fn process(options: &Options) {
                 println!("Keeping {:?}.", keeping);
             }
 
+            let mut created = false;
             for discard in discarding.iter() {
                 if let Some(move_to) = &options.move_to {
                     if prompt_default(format!("  Move {:?}?", *discard), false)? {
-                        fs::create_dir_all(move_to)?;
+                        if !created {
+                            fs::create_dir_all(move_to)?;
+                            created = true;
+                        }
                         let dest = move_to.join(discard.file_name().unwrap());
                         fs::rename(*discard, &dest)?;
                         println!("  * Moved to {:?}!", &dest);
@@ -102,8 +82,46 @@ fn process(options: &Options) {
     }
 }
 
+#[throws(BoxError)]
+fn get_file_map(options: &Options) -> HashMap<OsString, Vec<(PathBuf, OsString)>> {
+    let mut file_map = HashMap::new();
+    for entry in fs::read_dir(&options.in_dir)? {
+        let entry = entry?;
+        if entry.file_type()?.is_dir() && options.recursive {
+            process(&options.clone_with_subdir(entry.file_name()))?;
+        } else {
+            let file = entry.path();
+            if let (Some(stem), Some(extension)) = (file.file_stem(), file.extension()) {
+                if !file_map.contains_key(stem) {
+                    file_map.insert(stem.to_owned(), vec![]);
+                }
+                file_map
+                    .get_mut(stem)
+                    .unwrap()
+                    .push((file.clone(), extension.to_owned()));
+            }
+        }
+    }
+    file_map
+}
+
+fn get_kept_file<'a>(keep_extensions: &'a [OsString], entries: &'a [(PathBuf, OsString)]) -> Option<&'a PathBuf> {
+    // Check each kept extension one-by-one.
+    for keep_ext in keep_extensions.iter() {
+        // If there is an entry with this extension, it is the one to keep.
+        let keeping = entries
+            .iter()
+            .find(|(_, ext)| ext.eq_ignore_ascii_case(keep_ext))
+            .map(|(path, _)| path);
+        if keeping.is_some() {
+            return keeping;
+        }
+    }
+    None
+}
+
 #[paw::main]
-#[throws(Box<dyn std::error::Error>)]
+#[throws(Box<dyn StdError>)]
 fn main(options: Options) {
     process(&options)?;
 }
