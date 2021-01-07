@@ -1,13 +1,13 @@
 #![feature(osstring_ascii)]
 
 use std::{
-    collections::hash_map::HashMap,
     error::Error as StdError,
-    ffi::OsString,
+    ffi::{OsStr, OsString},
     fs,
     path::{Path, PathBuf},
 };
 
+use multimap::MultiMap;
 use promptly::prompt_default;
 
 type Result<T> = std::result::Result<T, Box<dyn StdError>>;
@@ -28,7 +28,7 @@ struct Options {
 }
 
 impl Options {
-    fn clone_with_subdir(&self, subdir: impl AsRef<Path>) -> Self {
+    fn with_subdir(&self, subdir: impl AsRef<Path>) -> Self {
         let subdir = subdir.as_ref();
         Options {
             in_dir: self.in_dir.join(subdir),
@@ -42,7 +42,7 @@ fn process(options: &Options) -> Result<()> {
     let file_map = get_file_map(options)?;
 
     for stem in file_map.keys() {
-        let entries = file_map.get(stem).unwrap();
+        let entries = file_map.get_vec(stem).unwrap();
 
         let keeping = get_kept_file(&options.keep[..], &entries[..]);
 
@@ -81,35 +81,35 @@ fn process(options: &Options) -> Result<()> {
     Ok(())
 }
 
-fn get_file_map(options: &Options) -> Result<HashMap<OsString, Vec<PathBuf>>> {
-    let mut file_map = HashMap::new();
+fn get_file_map(options: &Options) -> Result<MultiMap<OsString, PathBuf>> {
+    let mut file_map = MultiMap::new();
     for entry in fs::read_dir(&options.in_dir)? {
         let entry = entry?;
         if entry.file_type()?.is_dir() && options.recursive {
-            process(&options.clone_with_subdir(entry.file_name()))?;
+            process(&options.with_subdir(entry.file_name()))?;
         } else {
             let file = entry.path();
             if let (Some(stem), Some(_)) = (file.file_stem(), file.extension()) {
-                if !file_map.contains_key(stem) {
-                    file_map.insert(stem.to_owned(), vec![]);
-                }
-                file_map.get_mut(stem).unwrap().push(file.clone());
+                let stem = stem.to_owned();
+                file_map.insert(stem, file);
             }
         }
     }
     Ok(file_map)
 }
 
-fn get_kept_file<'a>(
-    keep_extensions: &'_ [OsString],
+fn get_kept_file<'a, S: AsRef<OsStr>>(
+    keep_extensions: &'_ [S],
     entries: &'a [PathBuf],
 ) -> Option<&'a PathBuf> {
     // Check each kept extension one-by-one.
     for keep_ext in keep_extensions.iter() {
         // If there is an entry with this extension, it is the one to keep.
-        let keeping = entries
-            .iter()
-            .find(|path| path.extension().unwrap().eq_ignore_ascii_case(keep_ext));
+        let keeping = entries.iter().find(|path| {
+            path.extension()
+                .unwrap()
+                .eq_ignore_ascii_case(keep_ext.as_ref())
+        });
         if keeping.is_some() {
             return keeping;
         }
