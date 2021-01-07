@@ -105,7 +105,7 @@ fn get_file_map(options: &Options) -> Result<HashMap<OsString, Vec<(PathBuf, OsS
 }
 
 fn get_kept_file<'a>(
-    keep_extensions: &'a [OsString],
+    keep_extensions: &'_ [OsString],
     entries: &'a [(PathBuf, OsString)],
 ) -> Option<&'a PathBuf> {
     // Check each kept extension one-by-one.
