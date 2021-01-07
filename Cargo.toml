@@ -1,0 +1,13 @@
+[package]
+name = "keep_one_ext"
+version = "0.1.0"
+authors = ["Michael Morgan <morgan.michael@me.com>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+fehler = "1.0.0"
+paw = "1.0.0"
+promptly = "0.3.0"
+structopt = { version = "0.3.21", features = ["paw"] }
