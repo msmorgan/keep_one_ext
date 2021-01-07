@@ -49,7 +49,6 @@ fn process(options: &Options) -> Result<()> {
         if let Some(keeping) = keeping {
             let discarding = entries
                 .iter()
-                .map(|(path, _)| path)
                 .filter(|path| *path != keeping)
                 .collect::<Vec<_>>();
 
@@ -82,7 +81,7 @@ fn process(options: &Options) -> Result<()> {
     Ok(())
 }
 
-fn get_file_map(options: &Options) -> Result<HashMap<OsString, Vec<(PathBuf, OsString)>>> {
+fn get_file_map(options: &Options) -> Result<HashMap<OsString, Vec<PathBuf>>> {
     let mut file_map = HashMap::new();
     for entry in fs::read_dir(&options.in_dir)? {
         let entry = entry?;
@@ -90,14 +89,11 @@ fn get_file_map(options: &Options) -> Result<HashMap<OsString, Vec<(PathBuf, OsS
             process(&options.clone_with_subdir(entry.file_name()))?;
         } else {
             let file = entry.path();
-            if let (Some(stem), Some(extension)) = (file.file_stem(), file.extension()) {
+            if let (Some(stem), Some(_)) = (file.file_stem(), file.extension()) {
                 if !file_map.contains_key(stem) {
                     file_map.insert(stem.to_owned(), vec![]);
                 }
-                file_map
-                    .get_mut(stem)
-                    .unwrap()
-                    .push((file.clone(), extension.to_owned()));
+                file_map.get_mut(stem).unwrap().push(file.clone());
             }
         }
     }
@@ -106,15 +102,14 @@ fn get_file_map(options: &Options) -> Result<HashMap<OsString, Vec<(PathBuf, OsS
 
 fn get_kept_file<'a>(
     keep_extensions: &'_ [OsString],
-    entries: &'a [(PathBuf, OsString)],
+    entries: &'a [PathBuf],
 ) -> Option<&'a PathBuf> {
     // Check each kept extension one-by-one.
     for keep_ext in keep_extensions.iter() {
         // If there is an entry with this extension, it is the one to keep.
         let keeping = entries
             .iter()
-            .find(|(_, ext)| ext.eq_ignore_ascii_case(keep_ext))
-            .map(|(path, _)| path);
+            .find(|path| path.extension().unwrap().eq_ignore_ascii_case(keep_ext));
         if keeping.is_some() {
             return keeping;
         }
