@@ -8,10 +8,9 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use fehler::throws;
 use promptly::prompt_default;
 
-type BoxError = Box<dyn StdError>;
+type Result<T> = std::result::Result<T, Box<dyn StdError>>;
 
 #[derive(Debug, structopt::StructOpt, Clone)]
 struct Options {
@@ -39,8 +38,7 @@ impl Options {
     }
 }
 
-#[throws(BoxError)]
-fn process(options: &Options) {
+fn process(options: &Options) -> Result<()> {
     let file_map = get_file_map(options)?;
 
     for stem in file_map.keys() {
@@ -80,10 +78,11 @@ fn process(options: &Options) {
             }
         }
     }
+
+    Ok(())
 }
 
-#[throws(BoxError)]
-fn get_file_map(options: &Options) -> HashMap<OsString, Vec<(PathBuf, OsString)>> {
+fn get_file_map(options: &Options) -> Result<HashMap<OsString, Vec<(PathBuf, OsString)>>> {
     let mut file_map = HashMap::new();
     for entry in fs::read_dir(&options.in_dir)? {
         let entry = entry?;
@@ -102,10 +101,13 @@ fn get_file_map(options: &Options) -> HashMap<OsString, Vec<(PathBuf, OsString)>
             }
         }
     }
-    file_map
+    Ok(file_map)
 }
 
-fn get_kept_file<'a>(keep_extensions: &'a [OsString], entries: &'a [(PathBuf, OsString)]) -> Option<&'a PathBuf> {
+fn get_kept_file<'a>(
+    keep_extensions: &'a [OsString],
+    entries: &'a [(PathBuf, OsString)],
+) -> Option<&'a PathBuf> {
     // Check each kept extension one-by-one.
     for keep_ext in keep_extensions.iter() {
         // If there is an entry with this extension, it is the one to keep.
@@ -121,7 +123,6 @@ fn get_kept_file<'a>(keep_extensions: &'a [OsString], entries: &'a [(PathBuf, Os
 }
 
 #[paw::main]
-#[throws(Box<dyn StdError>)]
-fn main(options: Options) {
-    process(&options)?;
+fn main(options: Options) -> Result<()> {
+    process(&options)
 }
